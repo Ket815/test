@@ -1,0 +1,323 @@
+// State variables
+let dodgeCount = 0;
+let isSuccess = false;
+let isFixed = false;
+let lastDodgeTime = 0;
+let audioCtx = null;
+
+// DOM elements
+const noBtn = document.getElementById('no-btn');
+const yesBtn = document.getElementById('yes-btn');
+const questionCard = document.getElementById('question-card');
+const successCard = document.getElementById('success-card');
+const emojiDisplay = document.getElementById('emoji-display');
+const mainTitle = document.getElementById('main-title');
+const subtitleDisplay = document.getElementById('subtitle-display');
+const canvas = document.getElementById('particles-canvas');
+const ctx = canvas.getContext('2d');
+
+// Phrases and emojis progression
+const stages = [
+  {
+    emoji: '😸',
+    subtitle: 'Come on, you know you want to! 💝',
+    yesText: 'Come on now'
+  },
+  {
+    emoji: '😹',
+    subtitle: 'The button is faster than you 😹',
+    yesText: 'WHY?'
+  },
+  {
+    emoji: '😜',
+    subtitle: 'Are you trying to say no? No way! 💖',
+    yesText: 'Just click Yes! 😘'
+  },
+  {
+    emoji: '🥺',
+    subtitle: 'Pretty please? My heart is breaking... 💔',
+    yesText: 'Yes, I will! 💖'
+  },
+  {
+    emoji: '🥰',
+    subtitle: 'You have no choice but to say yes! 😉',
+    yesText: 'Okay, Yes! 💖'
+  }
+];
+
+// Web Audio API Synthesizer
+function getAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
+
+function playDodgeSound() {
+  try {
+    const context = getAudioContext();
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+    
+    osc.type = 'triangle';
+    // Frequency sweep from 180Hz up to 550Hz for a cute "boing" jump sound
+    osc.frequency.setValueAtTime(180, context.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(550, context.currentTime + 0.12);
+    
+    gain.gain.setValueAtTime(0.12, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.12);
+    
+    osc.connect(gain);
+    gain.connect(context.destination);
+    
+    osc.start();
+    osc.stop(context.currentTime + 0.13);
+  } catch (err) {
+    console.warn("Audio playback failed or blocked:", err);
+  }
+}
+
+function playSuccessSound() {
+  try {
+    const context = getAudioContext();
+    const notes = [
+      { f: 523.25, d: 0.12 }, // C5
+      { f: 659.25, d: 0.12 }, // E5
+      { f: 783.99, d: 0.12 }, // G5
+      { f: 1046.50, d: 0.25 } // C6
+    ];
+    
+    let time = context.currentTime;
+    notes.forEach((note, index) => {
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(note.f, time);
+      
+      // Add a slight vibrato to the last note to make it feel extra bright and magical
+      if (index === notes.length - 1) {
+        const vibrato = context.createOscillator();
+        const vibratoGain = context.createGain();
+        vibrato.frequency.value = 12; // 12Hz vibrato
+        vibratoGain.gain.value = 12; // pitch swing
+        vibrato.connect(vibratoGain);
+        vibratoGain.connect(osc.frequency);
+        vibrato.start(time);
+        vibrato.stop(time + note.d);
+      }
+      
+      gain.gain.setValueAtTime(0.1, time);
+      gain.gain.exponentialRampToValueAtTime(0.01, time + note.d);
+      
+      osc.connect(gain);
+      gain.connect(context.destination);
+      
+      osc.start(time);
+      osc.stop(time + note.d + 0.05);
+      
+      time += 0.07; // delay between notes
+    });
+  } catch (err) {
+    console.warn("Audio playback failed or blocked:", err);
+  }
+}
+
+// Convert "No" button positioning from relative to fixed without jumping layout
+function ensureFixedPosition() {
+  if (isFixed) return;
+  const rect = noBtn.getBoundingClientRect();
+  
+  // Detach from card and attach to body so fixed positioning is relative to viewport
+  // (escapes containing block constraints caused by card transformations/filters)
+  document.body.appendChild(noBtn);
+  
+  noBtn.style.position = 'fixed';
+  noBtn.style.left = `${rect.left}px`;
+  noBtn.style.top = `${rect.top}px`;
+  noBtn.style.margin = '0';
+  isFixed = true;
+}
+
+// Trigger state change and dodge sound
+function triggerDodge() {
+  const now = Date.now();
+  if (now - lastDodgeTime > 250) { // Limit trigger frequency
+    lastDodgeTime = now;
+    playDodgeSound();
+    
+    dodgeCount++;
+    const stage = stages[Math.min(dodgeCount - 1, stages.length - 1)];
+    
+    // Update contents
+    emojiDisplay.textContent = stage.emoji;
+    subtitleDisplay.textContent = stage.subtitle;
+    yesBtn.textContent = stage.yesText;
+    
+    // Scale buttons: "Yes" grows, "No" shrinks
+    const yesScale = 1 + (dodgeCount * 0.1);
+    const noScale = Math.max(0.5, 1 - (dodgeCount * 0.08));
+    
+    yesBtn.style.transform = `scale(${yesScale})`;
+    noBtn.style.transform = `scale(${noScale})`;
+  }
+}
+
+// Teleport the No button on click/tap
+function teleportNoButton(e) {
+  if (isSuccess) return;
+  if (e) e.preventDefault(); // Stop native click/tap actions
+  
+  ensureFixedPosition();
+  
+  const pad = 35;
+  const rect = noBtn.getBoundingClientRect();
+  const maxX = window.innerWidth - rect.width - pad;
+  const maxY = window.innerHeight - rect.height - pad;
+  
+  const targetX = pad + Math.random() * (maxX - pad);
+  const targetY = pad + Math.random() * (maxY - pad);
+  
+  noBtn.style.left = `${targetX}px`;
+  noBtn.style.top = `${targetY}px`;
+  
+  triggerDodge();
+}
+
+// Add event listeners for click and touchstart
+noBtn.addEventListener('click', teleportNoButton);
+noBtn.addEventListener('touchstart', (e) => {
+  teleportNoButton(e);
+});
+
+// Canvas Particles Loop
+let particles = [];
+let animId = null;
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+class Particle {
+  constructor(isInitial = false) {
+    this.x = Math.random() * canvas.width;
+    this.y = isInitial ? Math.random() * canvas.height : -30;
+    this.size = Math.random() * 14 + 10;
+    
+    // Speeds and floaty drift
+    this.vx = Math.random() * 3 - 1.5;
+    this.vy = Math.random() * 2 + 1.2;
+    this.rotation = Math.random() * Math.PI * 2;
+    this.rotationSpeed = (Math.random() - 0.5) * 0.05;
+    
+    const types = ['heart', 'star', 'petal'];
+    this.type = types[Math.floor(Math.random() * types.length)];
+    
+    // Vibrant colors matching the pink/gold/magenta theme
+    if (this.type === 'heart') {
+      const colors = ['#FF2A6D', '#FF5E7E', '#FF85A0', '#FF0055'];
+      this.color = colors[Math.floor(Math.random() * colors.length)];
+    } else if (this.type === 'star') {
+      this.color = '#FFD700'; // Gold
+    } else {
+      // Petals
+      const colors = ['#FF4081', '#F50057', '#FF80AB', '#FF8A80'];
+      this.color = colors[Math.floor(Math.random() * colors.length)];
+    }
+  }
+  
+  update() {
+    this.y += this.vy;
+    this.x += this.vx;
+    this.rotation += this.rotationSpeed;
+    
+    // Soft wind swaying motion
+    this.vx += Math.sin(this.y / 25) * 0.015;
+  }
+  
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation);
+    ctx.fillStyle = this.color;
+    
+    if (this.type === 'heart') {
+      ctx.beginPath();
+      ctx.moveTo(0, -this.size / 4);
+      ctx.bezierCurveTo(-this.size / 2, -this.size, -this.size, -this.size / 3, 0, this.size);
+      ctx.bezierCurveTo(this.size, -this.size / 3, this.size / 2, -this.size, 0, -this.size / 4);
+      ctx.fill();
+    } else if (this.type === 'star') {
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        ctx.lineTo(Math.cos((18 + i * 72) * Math.PI / 180) * this.size,
+                   -Math.sin((18 + i * 72) * Math.PI / 180) * this.size);
+        ctx.lineTo(Math.cos((54 + i * 72) * Math.PI / 180) * (this.size / 2),
+                   -Math.sin((54 + i * 72) * Math.PI / 180) * (this.size / 2));
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else if (this.type === 'petal') {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, this.size, this.size / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function startCelebration() {
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  
+  // Populate initial screenspace with falling elements
+  for (let i = 0; i < 70; i++) {
+    particles.push(new Particle(true));
+  }
+  
+  function updateLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    particles.forEach((p, index) => {
+      p.update();
+      p.draw();
+      
+      // Recycle particle when it exits screen bottom
+      if (p.y > canvas.height + 30) {
+        particles[index] = new Particle(false);
+      }
+    });
+    
+    // Continual particle check
+    if (particles.length < 130) {
+      particles.push(new Particle(false));
+    }
+    
+    animId = requestAnimationFrame(updateLoop);
+  }
+  
+  updateLoop();
+}
+
+// Success button click transition
+yesBtn.addEventListener('click', () => {
+  if (isSuccess) return;
+  isSuccess = true;
+  
+  // Play chime sequence
+  playSuccessSound();
+  
+  // Body success themes
+  document.body.classList.add('success-state');
+  
+  // Flip active cards
+  questionCard.classList.add('hidden');
+  successCard.classList.add('show');
+  
+  // Begin particle storm
+  startCelebration();
+});
