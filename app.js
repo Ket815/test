@@ -171,51 +171,62 @@ function triggerDodge() {
 function teleportNoButton(e) {
   if (isSuccess) return;
   if (e) e.preventDefault(); // Stop native click/tap actions
-  
+
   ensureFixedPosition();
-  
-  // Use natural (un-scaled) button size so boundary math is always accurate
-  // regardless of how much CSS transform: scale() has shrunk the rendered size
-  const BTN_W = 80;  // approx natural width of No button in px
-  const BTN_H = 44;  // approx natural height
-  const pad = 20;    // safe gap from all screen edges
-  
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  
-  // Get the card rect so we can avoid placing the button behind it
+
+  // --- Accurate viewport size on mobile ---
+  // visualViewport accounts for the browser chrome (address bar, keyboard, etc.)
+  // Falls back to window.inner* on older browsers
+  const vvp = window.visualViewport;
+  const vw = vvp ? vvp.width  : window.innerWidth;
+  const vh = vvp ? vvp.height : window.innerHeight;
+  const vpOffX = vvp ? vvp.offsetLeft : 0;
+  const vpOffY = vvp ? vvp.offsetTop  : 0;
+
+  // --- True button size (ignores CSS transform: scale) ---
+  // offsetWidth/offsetHeight give the layout size before transforms
+  const btnW = noBtn.offsetWidth  || 80;
+  const btnH = noBtn.offsetHeight || 44;
+
+  const pad = 24; // min gap from every screen edge
+
+  // Safe bounds — fully within visible viewport
+  const minX = vpOffX + pad;
+  const maxX = vpOffX + vw - btnW - pad;
+  const minY = vpOffY + pad;
+  const maxY = vpOffY + vh - btnH - pad;
+
+  // Get the card rect so we can try to avoid the central floating box
   const card = document.getElementById('question-card');
   const cardRect = card ? card.getBoundingClientRect() : null;
-  
-  const minX = pad;
-  const maxX = vw - BTN_W - pad;
-  const minY = pad;
-  const maxY = vh - BTN_H - pad;
-  
-  // Try up to 20 random positions and pick the first that doesn't overlap the card
+
   let targetX, targetY;
   let attempts = 0;
-  
+
   do {
     targetX = minX + Math.random() * (maxX - minX);
     targetY = minY + Math.random() * (maxY - minY);
     attempts++;
-    
-    // If no card reference, or after many tries just accept the position
-    if (!cardRect || attempts >= 20) break;
-    
-    // Check if the candidate button rect overlaps the card rect (with a small buffer)
-    const buf = 15; // extra breathing room around card
-    const overlapX = targetX < cardRect.right + buf  && targetX + BTN_W > cardRect.left - buf;
-    const overlapY = targetY < cardRect.bottom + buf && targetY + BTN_H > cardRect.top - buf;
-    
-    if (!overlapX || !overlapY) break; // No overlap — good position found
-    
+
+    // After 25 tries just use the position (edge-case: very small screen)
+    if (!cardRect || attempts >= 25) break;
+
+    // Reject positions that land on the card (+ 12px breathing room)
+    const buf = 12;
+    const overlapX = targetX < cardRect.right  + buf && targetX + btnW > cardRect.left - buf;
+    const overlapY = targetY < cardRect.bottom + buf && targetY + btnH > cardRect.top  - buf;
+
+    if (!overlapX || !overlapY) break; // safe position found
+
   } while (true);
-  
+
+  // Hard-clamp as a final safety net — can never exceed safe zone
+  targetX = Math.max(minX, Math.min(targetX, maxX));
+  targetY = Math.max(minY, Math.min(targetY, maxY));
+
   noBtn.style.left = `${targetX}px`;
   noBtn.style.top  = `${targetY}px`;
-  
+
   triggerDodge();
 }
 
