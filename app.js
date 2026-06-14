@@ -136,6 +136,7 @@ function ensureFixedPosition() {
   document.body.appendChild(noBtn);
   
   noBtn.style.position = 'fixed';
+  noBtn.style.zIndex = '9999'; // Always above the card
   noBtn.style.left = `${rect.left}px`;
   noBtn.style.top = `${rect.top}px`;
   noBtn.style.margin = '0';
@@ -173,16 +174,47 @@ function teleportNoButton(e) {
   
   ensureFixedPosition();
   
-  const pad = 35;
-  const rect = noBtn.getBoundingClientRect();
-  const maxX = window.innerWidth - rect.width - pad;
-  const maxY = window.innerHeight - rect.height - pad;
+  // Use natural (un-scaled) button size so boundary math is always accurate
+  // regardless of how much CSS transform: scale() has shrunk the rendered size
+  const BTN_W = 80;  // approx natural width of No button in px
+  const BTN_H = 44;  // approx natural height
+  const pad = 20;    // safe gap from all screen edges
   
-  const targetX = pad + Math.random() * (maxX - pad);
-  const targetY = pad + Math.random() * (maxY - pad);
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  
+  // Get the card rect so we can avoid placing the button behind it
+  const card = document.getElementById('question-card');
+  const cardRect = card ? card.getBoundingClientRect() : null;
+  
+  const minX = pad;
+  const maxX = vw - BTN_W - pad;
+  const minY = pad;
+  const maxY = vh - BTN_H - pad;
+  
+  // Try up to 20 random positions and pick the first that doesn't overlap the card
+  let targetX, targetY;
+  let attempts = 0;
+  
+  do {
+    targetX = minX + Math.random() * (maxX - minX);
+    targetY = minY + Math.random() * (maxY - minY);
+    attempts++;
+    
+    // If no card reference, or after many tries just accept the position
+    if (!cardRect || attempts >= 20) break;
+    
+    // Check if the candidate button rect overlaps the card rect (with a small buffer)
+    const buf = 15; // extra breathing room around card
+    const overlapX = targetX < cardRect.right + buf  && targetX + BTN_W > cardRect.left - buf;
+    const overlapY = targetY < cardRect.bottom + buf && targetY + BTN_H > cardRect.top - buf;
+    
+    if (!overlapX || !overlapY) break; // No overlap — good position found
+    
+  } while (true);
   
   noBtn.style.left = `${targetX}px`;
-  noBtn.style.top = `${targetY}px`;
+  noBtn.style.top  = `${targetY}px`;
   
   triggerDodge();
 }
